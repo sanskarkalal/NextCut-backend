@@ -6,6 +6,7 @@ import {
   joinQueue,
   getBarbersNearby,
   removeFromQueue,
+  getUserQueueStatus,
 } from "../services/userServices";
 import "dotenv/config";
 import jwt from "jsonwebtoken";
@@ -13,6 +14,12 @@ import { authenticateJWT, AuthenticatedRequest } from "./middleware/auth";
 
 const userRouter = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// Helper function to extract error message
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  return String(error);
+};
 
 // User signup
 userRouter.post("/signup", async (req: Request, res: Response) => {
@@ -40,7 +47,10 @@ userRouter.post("/signup", async (req: Request, res: Response) => {
     console.error("Signup error:", error);
     res
       .status(500)
-      .json({ msg: "Error occurred during sign up", error: error.message });
+      .json({
+        msg: "Error occurred during sign up",
+        error: getErrorMessage(error),
+      });
   }
 });
 
@@ -74,7 +84,10 @@ userRouter.post("/signin", async (req: Request, res: Response) => {
     console.error("Signin error:", error);
     res
       .status(500)
-      .json({ msg: "Error occurred during sign in", error: error.message });
+      .json({
+        msg: "Error occurred during sign in",
+        error: getErrorMessage(error),
+      });
   }
 });
 
@@ -107,7 +120,7 @@ userRouter.post(
       console.error("Join queue error:", error);
       res
         .status(500)
-        .json({ msg: "Error joining queue", error: error.message });
+        .json({ msg: "Error joining queue", error: getErrorMessage(error) });
     }
   }
 );
@@ -140,12 +153,12 @@ userRouter.post(
       console.error("Leave queue error:", error);
       res
         .status(500)
-        .json({ msg: "Error leaving queue", error: error.message });
+        .json({ msg: "Error leaving queue", error: getErrorMessage(error) });
     }
   }
 );
 
-// Get nearby barbers - FIXED
+// Get nearby barbers
 userRouter.get(
   "/nearby",
   authenticateJWT,
@@ -155,11 +168,9 @@ userRouter.get(
       const long = req.query.long as string;
 
       if (!lat || !long) {
-        res
-          .status(400)
-          .json({
-            error: "Latitude and longitude query parameters are required",
-          });
+        res.status(400).json({
+          error: "Latitude and longitude query parameters are required",
+        });
         return;
       }
 
@@ -204,7 +215,10 @@ userRouter.get(
       console.error("Error fetching nearby barbers:", error);
       res
         .status(500)
-        .json({ error: "Internal server error", details: error.message });
+        .json({
+          error: "Internal server error",
+          details: getErrorMessage(error),
+        });
     }
   }
 );
@@ -222,18 +236,16 @@ userRouter.get(
         return;
       }
 
-      // You'll need to implement this function in userServices
-      // const queueStatus = await getUserQueueStatus(userId);
-      // res.json({ queueStatus });
-
-      res.json({
-        msg: "Queue status endpoint - implement getUserQueueStatus function",
-      });
+      const queueStatus = await getUserQueueStatus(userId);
+      res.json({ queueStatus });
     } catch (error) {
       console.error("Error fetching queue status:", error);
       res
         .status(500)
-        .json({ error: "Internal server error", details: error.message });
+        .json({
+          error: "Internal server error",
+          details: getErrorMessage(error),
+        });
     }
   }
 );

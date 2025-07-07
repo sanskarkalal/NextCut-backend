@@ -13,6 +13,20 @@ import { authenticateJWT, AuthenticatedRequest } from "./middleware/auth";
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// Helper function to extract error message
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  return String(error);
+};
+
+// Helper function to check if error has a code property
+const getErrorCode = (error: unknown): string | undefined => {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    return (error as any).code;
+  }
+  return undefined;
+};
+
 // Barber signup
 router.post("/signup", async (req: Request, res: Response) => {
   try {
@@ -64,14 +78,14 @@ router.post("/signup", async (req: Request, res: Response) => {
     console.error("Barber signup error:", error);
 
     // Handle unique constraint violation
-    if (error.code === "P2002") {
+    if (getErrorCode(error) === "P2002") {
       res.status(409).json({ msg: "Username already exists" });
       return;
     }
 
     res.status(500).json({
       msg: "Error occurred during barber signup",
-      error: error.message,
+      error: getErrorMessage(error),
     });
   }
 });
@@ -106,7 +120,7 @@ router.post("/signin", async (req: Request, res: Response) => {
     console.error("Barber signin error:", error);
     res.status(500).json({
       msg: "Error occurred during barber sign in",
-      error: error.message,
+      error: getErrorMessage(error),
     });
   }
 });
@@ -146,7 +160,10 @@ router.get(
       console.error("Error fetching barber queue:", error);
       res
         .status(500)
-        .json({ error: "Internal server error", details: error.message });
+        .json({
+          error: "Internal server error",
+          details: getErrorMessage(error),
+        });
     }
   }
 );
@@ -190,7 +207,10 @@ router.post(
       console.error("Error removing user from queue:", error);
       res
         .status(500)
-        .json({ error: "Internal server error", details: error.message });
+        .json({
+          error: "Internal server error",
+          details: getErrorMessage(error),
+        });
     }
   }
 );
