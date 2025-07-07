@@ -4,6 +4,7 @@ import {
   createUser,
   authenticateUser,
   joinQueue,
+  getBarbersNearby,
 } from "../services/userServices";
 import "dotenv/config";
 import jwt from "jsonwebtoken";
@@ -71,6 +72,32 @@ userRouter.post(
       msg: "You have joined the queue",
       queue: body,
     });
+  }
+);
+
+userRouter.get(
+  "/nearby",
+  authenticateJWT,
+
+  async (req: Request, res: Response) => {
+    try {
+      const qLat = parseFloat(req.query.lat as string);
+      const qLong = parseFloat(req.query.long as string);
+
+      if (isNaN(qLat) || isNaN(qLong)) {
+        res
+          .status(400)
+          .json({ error: "Invalid or missing lat/long query parameters" });
+        return;
+      }
+
+      const barbers = await getBarbersNearby(qLat, qLong, 5);
+
+      res.json({ barbers });
+    } catch (err) {
+      console.error("Error fetching nearby barbers:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
   }
 );
 
