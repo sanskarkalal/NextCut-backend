@@ -6,22 +6,47 @@ import barberRoutes from "./routes/barberRoutes";
 
 const app = express();
 
-// CORS configuration
+// CORS configuration - VERY PERMISSIVE FOR DEBUGGING
 const corsOptions = {
-  origin:
-    process.env.NODE_ENV === "production"
-      ? ["https://nextcut-frontend.vercel.app", "https://*.vercel.app"]
-      : [
-          "http://localhost:5173",
-          "http://localhost:3000",
-          "http://localhost:4173",
-        ],
+  origin: function (origin: string | undefined, callback: Function) {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+
+    // In production, allow all Vercel domains and your specific domain
+    if (process.env.NODE_ENV === "production") {
+      const allowedOrigins = [
+        /https:\/\/.*\.vercel\.app$/, // All Vercel domains
+        "https://nextcut-frontend.vercel.app",
+        "https://localhost:5173",
+        "https://localhost:3000",
+      ];
+
+      const isAllowed = allowedOrigins.some((pattern) => {
+        if (typeof pattern === "string") {
+          return origin === pattern;
+        }
+        return pattern.test(origin);
+      });
+
+      console.log(`CORS check - Origin: ${origin}, Allowed: ${isAllowed}`);
+      return callback(null, isAllowed);
+    }
+
+    // In development, allow everything
+    console.log(`CORS check (dev) - Origin: ${origin}, Allowed: true`);
+    return callback(null, true);
+  },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
 };
 
 app.use(cors(corsOptions));
+
+// Add explicit OPTIONS handler for preflight requests
+app.options("*", cors(corsOptions));
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -44,12 +69,22 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Debug endpoint to check CORS
+app.get("/debug", (req, res) => {
+  res.json({
+    origin: req.headers.origin,
+    headers: req.headers,
+    method: req.method,
+    url: req.url,
+  });
+});
+
 // API routes
 app.use("/user", userRoutes);
 app.use("/barber", barberRoutes);
 
 // 404 handler
-app.use((req, res) => {
+app.all("*", (req, res) => {
   res.status(404).json({
     error: "Route not found",
     path: req.path,
