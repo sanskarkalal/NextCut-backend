@@ -1,76 +1,198 @@
-import { email } from "./../../node_modules/zod/src/v4/core/regexes";
-import bcrypt from "bcrypt";
 // src/routes/barberRoutes.ts
 import { Router, Request, Response } from "express";
-import prisma from "../db";
 import {
   authenticateBarber,
   createBarber,
   getQueue,
+  removeUserFromQueue,
 } from "../services/barberServices";
-const router = Router();
 import jwt from "jsonwebtoken";
 import "dotenv/config";
-const JWT_SECRET = process.env.JWT_SECRET;
-import { authenticateJWT } from "./middleware/auth";
+import { authenticateJWT, AuthenticatedRequest } from "./middleware/auth";
 
-// correct: define routes on the router
-router.post("/signup", async (req, res) => {
+const router = Router();
+const JWT_SECRET = process.env.JWT_SECRET;
+
+// Barber signup
+router.post("/signup", async (req: Request, res: Response) => {
   try {
-    const { name, password, email, lat, long } = req.body;
+    const { name, username, password, lat, long } = req.body;
+
+    if (!name || !username || !password || !lat || !long) {
+      res.status(400).json({
+        error: "All fields are required: name, username, password, lat, long",
+      });
+      return;
+    }
+
     const latNum = parseFloat(lat);
     const longNum = parseFloat(long);
 
-    const barber = await createBarber(name, email, password, latNum, longNum);
+    if (isNaN(latNum) || isNaN(longNum)) {
+      res.status(400).json({ error: "Invalid latitude or longitude values" });
+      return;
+    }
+
+    // Validate latitude and longitude ranges
+    if (latNum < -90 || latNum > 90) {
+      res.status(400).json({ error: "Latitude must be between -90 and 90" });
+      return;
+    }
+
+    if (longNum < -180 || longNum > 180) {
+      res.status(400).json({ error: "Longitude must be between -180 and 180" });
+      return;
+    }
+
+    const barber = await createBarber(
+      name,
+      username,
+      password,
+      latNum,
+      longNum
+    );
     const token = jwt.sign({ sub: barber.id, role: "BARBER" }, JWT_SECRET!, {
       expiresIn: "8h",
     });
-    res.json({
+
+    res.status(201).json({
       barber,
       msg: "Barber Created Successfully",
       token,
     });
   } catch (error) {
-    res.json({ msg: error });
-  }
-});
+    console.error("Barber signup error:", error);
 
-router.post("/signin", async (req, res) => {
-  try {
-    const { password, email } = req.body;
-
-    const barber = await authenticateBarber(email, password);
-    if (!barber) {
-      res.json({ msg: "Barber does not exist" });
-    } else {
-      const token = jwt.sign({ sub: barber.id, role: "BARBER" }, JWT_SECRET!, {
-        expiresIn: "8h",
-      });
-      res.json({
-        barber,
-        msg: "Barber Signed In Successfully",
-        token,
-      });
+    // Handle unique constraint violation
+    if (error.code === "P2002") {
+      res.status(409).json({ msg: "Username already exists" });
+      return;
     }
-  } catch (error) {
-    res.json({ msg: "Error happened during barber sign In" });
+
+    res.status(500).json({
+      msg: "Error occurred during barber signup",
+      error: error.message,
+    });
   }
 });
 
-router.post("/queue", authenticateJWT, async (req: Request, res: Response) => {
+// Barber signin
+router.post("/signin", async (req: Request, res: Response) => {
   try {
-    console.log(req.body);
-    const barberId = req.body.barberId; // Assuming barberId is sent in the request body
+    const { username, password } = req.body;
 
-    // Fetch the queue entries, each including the user’s id & name
-    const queue = await getQueue(barberId);
+    if (!username || !password) {
+      res.status(400).json({ error: "Username and password are required" });
+      return;
+    }
 
-    // Return an array like:
-    res.json(queue);
-  } catch (err) {
-    console.error("Error fetching barber queue:", err);
-    res.status(500).json({ error: "Internal server error" });
+    const barber = await authenticateBarber(username, password);
+
+    if (!barber) {
+      res.status(401).json({ msg: "Invalid username or password" });
+      return;
+    }
+
+    const token = jwt.sign({ sub: barber.id, role: "BARBER" }, JWT_SECRET!, {
+      expiresIn: "8h",
+    });
+
+    res.json({
+      barber,
+      msg: "Barber Signed In Successfully",
+      token,
+    });
+  } catch (error) {
+    console.error("Barber signin error:", error);
+    res.status(500).json({
+      msg: "Error occurred during barber sign in",
+      error: error.message,
+    });
   }
 });
+
+// Get barber's queue
+router.get(
+  "/queue",
+  authenticateJWT,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const barberId = req.user?.id;
+
+      if (!barberId) {
+        res.status(401).json({ error: "Barber not authenticated" });
+        return;
+      }
+
+      // Verify this is a barber making the request
+      if (req.user?.role !== "BARBER") {
+        res.status(403).json({ error: "Access denied. Barber role required." });
+        return;
+      }
+
+      const queue = await getQueue(barberId);
+
+      res.json({
+        barberId,
+        queueLength: queue.length,
+        queue: queue.map((entry, index) => ({
+          position: index + 1,
+          queueId: entry.id,
+          user: entry.user,
+          enteredAt: entry.enteredAt,
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching barber queue:", error);
+      res
+        .status(500)
+        .json({ error: "Internal server error", details: error.message });
+    }
+  }
+);
+
+// Remove user from queue (barber action)
+router.post(
+  "/remove-user",
+  authenticateJWT,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const barberId = req.user?.id;
+      const { userId } = req.body;
+
+      if (!barberId) {
+        res.status(401).json({ error: "Barber not authenticated" });
+        return;
+      }
+
+      if (req.user?.role !== "BARBER") {
+        res.status(403).json({ error: "Access denied. Barber role required." });
+        return;
+      }
+
+      if (!userId) {
+        res.status(400).json({ error: "User ID is required" });
+        return;
+      }
+
+      const result = await removeUserFromQueue(barberId, userId);
+
+      if (!result.success) {
+        res.status(400).json({ msg: result.message });
+        return;
+      }
+
+      res.json({
+        msg: "User removed from queue successfully",
+        data: result.data,
+      });
+    } catch (error) {
+      console.error("Error removing user from queue:", error);
+      res
+        .status(500)
+        .json({ error: "Internal server error", details: error.message });
+    }
+  }
+);
 
 export default router;
