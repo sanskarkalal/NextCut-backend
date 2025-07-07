@@ -16,7 +16,7 @@ const corsOptions = {
     if (process.env.NODE_ENV === "production") {
       const allowedOrigins = [
         /https:\/\/.*\.vercel\.app$/, // All Vercel domains
-        "https://nextcut-frontend.vercel.app",
+        "https://next-cut-frontend-e6zu.vercel.app/",
         "https://localhost:5173",
         "https://localhost:3000",
       ];
