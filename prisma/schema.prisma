@@ -1,0 +1,57 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  // queue status flags
+  inQueue        Boolean @default(false)
+  queuedBarberId Int? // which barber they’re currently queued at
+  Queue          Queue?
+
+  @@index([queuedBarberId])
+}
+
+model Barber {
+  id           Int      @id @default(autoincrement())
+  name         String
+  username     String   @unique
+  passwordHash String
+  lat          Float
+  long         Float
+  createdAt    DateTime @default(now())
+
+  // back-reference: all queue entries for this barber
+  queueEntries Queue[]
+}
+
+model Queue {
+  id        Int      @id @default(autoincrement())
+  enteredAt DateTime @default(now())
+
+  barber   Barber @relation(fields: [barberId], references: [id])
+  barberId Int
+
+  user   User @relation(fields: [userId], references: [id])
+  userId Int
+
+  @@unique([userId]) // one active entry per user
+  @@index([barberId, enteredAt]) // fast fetch by barber + order
+}
