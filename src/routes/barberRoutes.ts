@@ -18,8 +18,10 @@ import { authenticateJWT } from "./middleware/auth";
 router.post("/signup", async (req, res) => {
   try {
     const { name, password, email, lat, long } = req.body;
+    const latNum = parseFloat(lat);
+    const longNum = parseFloat(long);
 
-    const barber = await createBarber(name, email, password, lat, long);
+    const barber = await createBarber(name, email, password, latNum, longNum);
     const token = jwt.sign({ sub: barber.id, role: "BARBER" }, JWT_SECRET!, {
       expiresIn: "8h",
     });
@@ -29,7 +31,7 @@ router.post("/signup", async (req, res) => {
       token,
     });
   } catch (error) {
-    res.json({ msg: "Error happened during barber sign up" });
+    res.json({ msg: error });
   }
 });
 

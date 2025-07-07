@@ -1,3 +1,4 @@
+import { Barber } from "./../../generated/prisma/index.d";
 // src/services/barberService.ts
 import { Prisma } from "@prisma/client";
 import prisma from "../db";
@@ -18,21 +19,26 @@ export async function createBarber(
   lat: number,
   long: number
 ): Promise<BarberDTO> {
-  try {
-    const passwordHash = await bcrypt.hash(password, 10);
-    const barber = await prisma.barber.create({
-      data: { name, username, passwordHash, lat, long },
-    });
-    return {
-      id: barber.id,
-      name: barber.name,
-      username: barber.username,
-      lat: barber.lat,
-      long: barber.long,
-    };
-  } catch (err: any) {
-    return err;
-  }
+  console.log("Creating barber with data:", {
+    name,
+    username,
+    password,
+    lat,
+    long,
+  });
+  const passwordHash = await bcrypt.hash(password, 10);
+  const barber = await prisma.barber.create({
+    data: { name, username, passwordHash, lat, long },
+  });
+
+  console.log("Barber created:", barber);
+  return {
+    id: barber.id,
+    name: barber.name,
+    username: barber.username,
+    lat: barber.lat,
+    long: barber.long,
+  };
 }
 
 export async function authenticateBarber(
@@ -56,14 +62,14 @@ export async function authenticateBarber(
   };
 }
 
-export async function getQueue(
-  barberId: number
-): Promise<Prisma.QueueGetPayload<{
-  include: { user: { select: { id: true; name: true } } };
-}>[]> {
+export async function getQueue(barberId: number): Promise<
+  Prisma.QueueGetPayload<{
+    include: { user: { select: { id: true; name: true } } };
+  }>[]
+> {
   return prisma.queue.findMany({
     where: { barberId },
-    orderBy: { enteredAt: 'asc' },
-    include: { user: { select: { id: true, name: true } } }
+    orderBy: { enteredAt: "asc" },
+    include: { user: { select: { id: true, name: true } } },
   });
 }
