@@ -1,6 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
+// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -19,7 +17,7 @@ model User {
 
   // queue status flags
   inQueue        Boolean @default(false)
-  queuedBarberId Int? // which barber they're currently queued at
+  queuedBarberId Int?
   Queue          Queue?
 
   @@index([queuedBarberId])
@@ -34,7 +32,6 @@ model Barber {
   long         Float
   createdAt    DateTime @default(now())
 
-  // back-reference: all queue entries for this barber
   queueEntries Queue[]
 }
 
@@ -48,6 +45,6 @@ model Queue {
   user   User @relation(fields: [userId], references: [id])
   userId Int
 
-  @@unique([userId]) // one active entry per user
-  @@index([barberId, enteredAt]) // fast fetch by barber + order
+  @@unique([userId])
+  @@index([barberId, enteredAt])
 }

@@ -6,19 +6,18 @@ import barberRoutes from "./routes/barberRoutes";
 
 const app = express();
 
-// CORS configuration with your exact domains
+// CORS configuration for your exact domains
 const corsOptions = {
   origin: function (origin: string | undefined, callback: Function) {
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
 
-    // In production, allow your specific Vercel domain and all Vercel subdomains
+    // In production, allow your specific Vercel domain
     if (process.env.NODE_ENV === "production") {
       const allowedOrigins = [
         "https://next-cut-frontend-e6zu.vercel.app",
-        "https://next-cut-frontend-e6zu-*.vercel.app",
         /https:\/\/next-cut-frontend.*\.vercel\.app$/,
-        /https:\/\/.*\.vercel\.app$/, // All Vercel domains
+        /https:\/\/.*\.vercel\.app$/,
       ];
 
       const isAllowed = allowedOrigins.some((pattern) => {
@@ -33,31 +32,27 @@ const corsOptions = {
     }
 
     // In development, allow everything
-    console.log(`CORS check (dev) - Origin: ${origin}, Allowed: true`);
     return callback(null, true);
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 200,
 };
 
 app.use(cors(corsOptions));
-
-// Add explicit OPTIONS handler for preflight requests
 app.options("*", cors(corsOptions));
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
+// Health check endpoints
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "OK",
     message: "NextCut API is running",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
-    version: "1.0.0",
   });
 });
 
@@ -66,16 +61,6 @@ app.get("/health", (req, res) => {
     status: "OK",
     message: "NextCut API is healthy",
     timestamp: new Date().toISOString(),
-  });
-});
-
-// Debug endpoint to check CORS
-app.get("/debug", (req, res) => {
-  res.json({
-    origin: req.headers.origin,
-    headers: req.headers,
-    method: req.method,
-    url: req.url,
   });
 });
 
@@ -115,4 +100,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`NextCut API listening on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(
+    `Database URL configured: ${process.env.DATABASE_URL ? "Yes" : "No"}`
+  );
 });
