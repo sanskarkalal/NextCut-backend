@@ -12,14 +12,6 @@
     "start": "node dist/index.js",
     "postinstall": "npx prisma generate"
   },
-  "keywords": [
-    "nextcut",
-    "barber",
-    "queue",
-    "api"
-  ],
-  "author": "NextCut Team",
-  "license": "ISC",
   "dependencies": {
     "@prisma/client": "^5.7.1",
     "bcrypt": "^5.1.1",
@@ -35,7 +27,6 @@
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.10.5",
     "prisma": "^5.7.1",
-    "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.3"
   }
 }
