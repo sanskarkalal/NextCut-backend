@@ -8,10 +8,13 @@ export async function createUser(
   password: string
 ) {
   try {
+    console.log(`Creating user with email: ${email}`);
     const passwordHash = await bcrypt.hash(password, 10);
-    return prisma.user.create({
+    const user = await prisma.user.create({
       data: { name, email, passwordHash },
     });
+    console.log(`User created successfully with ID: ${user.id}`);
+    return user;
   } catch (error) {
     console.error("Error creating user:", error);
     throw new Error("Failed to create user");
@@ -20,14 +23,36 @@ export async function createUser(
 
 export async function authenticateUser(email: string, password: string) {
   try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return null;
+    console.log(`Attempting to authenticate user with email: ${email}`);
 
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
+
+    if (!user) {
+      console.log(`User not found with email: ${email}`);
+      return null;
+    }
+
+    console.log(`User found, checking password for user ID: ${user.id}`);
+
+    // Compare password
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return null;
+
+    if (!valid) {
+      console.log(`Invalid password for user: ${email}`);
+      return null;
+    }
+
+    console.log(`Authentication successful for user: ${email}`);
 
     // Return only the fields you want exposed
-    return { id: user.id, name: user.name, email: user.email };
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    };
   } catch (error) {
     console.error("Error authenticating user:", error);
     throw new Error("Failed to authenticate user");

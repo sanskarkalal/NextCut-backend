@@ -24,10 +24,15 @@ const getErrorMessage = (error: unknown): string => {
 // User signup
 userRouter.post("/signup", async (req: Request, res: Response) => {
   try {
-    console.log("Signup request body:", req.body);
+    console.log("Signup request received:", {
+      body: req.body,
+      headers: req.headers.origin,
+    });
+
     const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
+      console.log("Missing fields in signup request");
       res.status(400).json({ error: "Name, email and password are required." });
       return;
     }
@@ -37,42 +42,62 @@ userRouter.post("/signup", async (req: Request, res: Response) => {
       expiresIn: "8h",
     });
 
-    res.status(201).json({
-      id: user.id,
-      name: user.name,
+    console.log("User signup successful:", {
+      userId: user.id,
       email: user.email,
+    });
+
+    res.status(201).json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      },
+      msg: "User created successfully",
       token,
     });
   } catch (error) {
     console.error("Signup error:", error);
-    res
-      .status(500)
-      .json({
-        msg: "Error occurred during sign up",
-        error: getErrorMessage(error),
-      });
+    res.status(500).json({
+      msg: "Error occurred during sign up",
+      error: getErrorMessage(error),
+    });
   }
 });
 
 // User signin
 userRouter.post("/signin", async (req: Request, res: Response) => {
   try {
+    console.log("Signin request received:", {
+      email: req.body.email,
+      hasPassword: !!req.body.password,
+      origin: req.headers.origin,
+    });
+
     const { email, password } = req.body;
 
     if (!email || !password) {
+      console.log("Missing email or password in signin request");
       res.status(400).json({ error: "Email and password are required." });
       return;
     }
 
+    console.log("Attempting to authenticate user:", email);
     const user = await authenticateUser(email, password);
 
     if (!user) {
+      console.log("Authentication failed for user:", email);
       res.status(401).json({ msg: "Invalid email or password" });
       return;
     }
 
     const token = jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET!, {
       expiresIn: "8h",
+    });
+
+    console.log("User signin successful:", {
+      userId: user.id,
+      email: user.email,
     });
 
     res.json({
@@ -82,12 +107,10 @@ userRouter.post("/signin", async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Signin error:", error);
-    res
-      .status(500)
-      .json({
-        msg: "Error occurred during sign in",
-        error: getErrorMessage(error),
-      });
+    res.status(500).json({
+      msg: "Error occurred during sign in",
+      error: getErrorMessage(error),
+    });
   }
 });
 
