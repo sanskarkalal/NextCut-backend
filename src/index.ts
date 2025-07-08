@@ -6,19 +6,19 @@ import barberRoutes from "./routes/barberRoutes";
 
 const app = express();
 
-// CORS configuration - VERY PERMISSIVE FOR DEBUGGING
+// CORS configuration with your exact domains
 const corsOptions = {
   origin: function (origin: string | undefined, callback: Function) {
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
 
-    // In production, allow all Vercel domains and your specific domain
+    // In production, allow your specific Vercel domain and all Vercel subdomains
     if (process.env.NODE_ENV === "production") {
       const allowedOrigins = [
+        "https://next-cut-frontend-e6zu.vercel.app",
+        "https://next-cut-frontend-e6zu-*.vercel.app",
+        /https:\/\/next-cut-frontend.*\.vercel\.app$/,
         /https:\/\/.*\.vercel\.app$/, // All Vercel domains
-        "https://next-cut-frontend-e6zu.vercel.app/",
-        "https://localhost:5173",
-        "https://localhost:3000",
       ];
 
       const isAllowed = allowedOrigins.some((pattern) => {
