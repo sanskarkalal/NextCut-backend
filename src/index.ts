@@ -43,7 +43,7 @@ const HOST = "0.0.0.0";
 
 console.log(`Attempting to start server on ${HOST}:${PORT}`);
 
-const server = app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, () => {
   console.log(`✅ Server successfully listening on ${HOST}:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
 });
