@@ -4,18 +4,29 @@ import cors from "cors";
 
 const app = express();
 
-// Simple CORS
 app.use(cors());
 app.use(express.json());
 
-// Health check endpoints
+// Debug all environment variables
+console.log("=== ENVIRONMENT DEBUG ===");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("PORT from env:", process.env.PORT);
+console.log(
+  "All env vars:",
+  Object.keys(process.env).filter(
+    (k) => k.includes("PORT") || k.includes("RAILWAY")
+  )
+);
+console.log("========================");
+
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "OK",
     message: "NextCut API is running",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
-    port: process.env.PORT || 3000,
+    port: process.env.PORT || "NOT_SET",
+    allPorts: Object.keys(process.env).filter((k) => k.includes("PORT")),
   });
 });
 
@@ -23,36 +34,28 @@ app.get("/health", (req, res) => {
   res.status(200).json({
     status: "OK",
     message: "Health check passed",
-    timestamp: new Date().toISOString(),
   });
 });
 
-// Test route
-app.get("/test", (req, res) => {
-  res.json({
-    message: "Test route working",
-    env: process.env.NODE_ENV,
-    port: process.env.PORT,
-  });
-});
-
-// CRITICAL: Use Railway's PORT environment variable and bind to 0.0.0.0
-const PORT = process.env.PORT || 3000;
+// Try multiple port strategies
+const PORT = process.env.PORT || process.env.RAILWAY_PUBLIC_PORT || 3000;
 const HOST = "0.0.0.0";
 
-app.listen(PORT, HOST, () => {
-  console.log(`NextCut API listening on ${HOST}:${PORT}`);
+console.log(`Attempting to start server on ${HOST}:${PORT}`);
+
+const server = app.listen(PORT, HOST, () => {
+  console.log(`✅ Server successfully listening on ${HOST}:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`Railway PORT: ${process.env.PORT}`);
 });
 
-// Handle process signals
+server.on("error", (error) => {
+  console.error("❌ Server failed to start:", error);
+});
+
+// Graceful shutdown
 process.on("SIGTERM", () => {
   console.log("SIGTERM received, shutting down gracefully");
-  process.exit(0);
-});
-
-process.on("SIGINT", () => {
-  console.log("SIGINT received, shutting down gracefully");
-  process.exit(0);
+  server.close(() => {
+    process.exit(0);
+  });
 });
