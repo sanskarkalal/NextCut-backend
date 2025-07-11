@@ -21,37 +21,41 @@ const getErrorMessage = (error: unknown): string => {
   return String(error);
 };
 
-// User signup
+// User signup with phone number
 userRouter.post("/signup", async (req: Request, res: Response) => {
   try {
-    console.log("Signup request received:", {
+    console.log("Phone signup request received:", {
       body: req.body,
       headers: req.headers.origin,
     });
 
-    const { name, email, password } = req.body;
+    const { name, phoneNumber } = req.body;
 
-    if (!name || !email || !password) {
+    if (!name || !phoneNumber) {
       console.log("Missing fields in signup request");
-      res.status(400).json({ error: "Name, email and password are required." });
+      res.status(400).json({ error: "Name and phone number are required." });
       return;
     }
 
-    const user = await createUser(name, email, password);
-    const token = jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET!, {
-      expiresIn: "8h",
-    });
+    const user = await createUser(name, phoneNumber);
+    const token = jwt.sign(
+      { sub: user.id, phoneNumber: user.phoneNumber },
+      JWT_SECRET!,
+      {
+        expiresIn: "8h",
+      }
+    );
 
     console.log("User signup successful:", {
       userId: user.id,
-      email: user.email,
+      phoneNumber: user.phoneNumber,
     });
 
     res.status(201).json({
       user: {
         id: user.id,
         name: user.name,
-        email: user.email,
+        phoneNumber: user.phoneNumber,
       },
       msg: "User created successfully",
       token,
@@ -65,44 +69,49 @@ userRouter.post("/signup", async (req: Request, res: Response) => {
   }
 });
 
-// User signin
+// User signin with phone number only
 userRouter.post("/signin", async (req: Request, res: Response) => {
   try {
-    console.log("Signin request received:", {
-      email: req.body.email,
-      hasPassword: !!req.body.password,
+    console.log("Phone signin request received:", {
+      phoneNumber: req.body.phoneNumber,
       origin: req.headers.origin,
     });
 
-    const { email, password } = req.body;
+    const { phoneNumber } = req.body;
 
-    if (!email || !password) {
-      console.log("Missing email or password in signin request");
-      res.status(400).json({ error: "Email and password are required." });
+    if (!phoneNumber) {
+      console.log("Missing phone number in signin request");
+      res.status(400).json({ error: "Phone number is required." });
       return;
     }
 
-    console.log("Attempting to authenticate user:", email);
-    const user = await authenticateUser(email, password);
+    const user = await authenticateUser(phoneNumber);
 
     if (!user) {
-      console.log("Authentication failed for user:", email);
-      res.status(401).json({ msg: "Invalid email or password" });
+      console.log("Phone authentication failed for:", phoneNumber);
+      res
+        .status(401)
+        .json({ msg: "Phone number not found. Please sign up first." });
       return;
     }
 
-    const token = jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET!, {
-      expiresIn: "8h",
-    });
+    const token = jwt.sign(
+      { sub: user.id, phoneNumber: user.phoneNumber },
+      JWT_SECRET!,
+      {
+        expiresIn: "8h",
+      }
+    );
 
-    console.log("User signin successful:", {
-      userId: user.id,
-      email: user.email,
-    });
+    console.log("Phone authentication successful for:", phoneNumber);
 
     res.json({
-      user,
-      msg: "User Signed In Successfully",
+      user: {
+        id: user.id,
+        name: user.name,
+        phoneNumber: user.phoneNumber,
+      },
+      msg: "User signed in successfully",
       token,
     });
   } catch (error) {
@@ -114,161 +123,153 @@ userRouter.post("/signin", async (req: Request, res: Response) => {
   }
 });
 
-// Join queue
+// Join queue with service selection
 userRouter.post(
   "/joinqueue",
   authenticateJWT,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { barberId } = req.body;
-      const userId = req.user?.id;
+      console.log("Join queue request:", {
+        userId: req.user?.id,
+        body: req.body,
+      });
 
-      if (!userId) {
-        res.status(401).json({ error: "User not authenticated" });
+      const { barberId, service } = req.body;
+
+      if (!barberId || !service) {
+        res
+          .status(400)
+          .json({ error: "Barber ID and service type are required." });
         return;
       }
 
-      if (!barberId) {
-        res.status(400).json({ error: "Barber ID is required" });
-        return;
-      }
+      const queueEntry = await joinQueue(req.user!.id, barberId, service);
 
-      const queueEntry = await joinQueue(barberId, userId);
+      console.log("User joined queue successfully:", {
+        userId: req.user?.id,
+        barberId,
+        service,
+      });
 
-      res.json({
-        msg: "You have joined the queue",
+      res.status(201).json({
+        msg: "Successfully joined the queue",
         queue: queueEntry,
       });
     } catch (error) {
       console.error("Join queue error:", error);
-      res
-        .status(500)
-        .json({ msg: "Error joining queue", error: getErrorMessage(error) });
-    }
-  }
-);
-
-// Remove from queue
-userRouter.post(
-  "/leavequeue",
-  authenticateJWT,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const userId = req.user?.id;
-
-      if (!userId) {
-        res.status(401).json({ error: "User not authenticated" });
-        return;
-      }
-
-      const result = await removeFromQueue(userId);
-
-      if (!result.success) {
-        res.status(400).json({ msg: result.message });
-        return;
-      }
-
-      res.json({
-        msg: "You have been removed from the queue",
-        data: result.data,
+      res.status(500).json({
+        msg: "Failed to join queue",
+        error: getErrorMessage(error),
       });
-    } catch (error) {
-      console.error("Leave queue error:", error);
-      res
-        .status(500)
-        .json({ msg: "Error leaving queue", error: getErrorMessage(error) });
     }
   }
 );
 
 // Get nearby barbers
-userRouter.get(
-  "/nearby",
+userRouter.post("/barbers", async (req: Request, res: Response) => {
+  try {
+    console.log("Get barbers request:", req.body);
+
+    const { lat, long, radius = 10 } = req.body;
+
+    if (lat === undefined || long === undefined) {
+      res.status(400).json({ error: "Latitude and longitude are required." });
+      return;
+    }
+
+    const barbers = await getBarbersNearby(lat, long, radius);
+
+    // Add queue length and estimated wait time for each barber
+    const barbersWithQueueInfo = barbers.map((barber) => {
+      const queueLength = barber.queueEntries.length;
+
+      // Calculate total estimated wait time for all services in queue
+      let totalWaitTime = 0;
+      barber.queueEntries.forEach((entry: any) => {
+        const serviceTimes = {
+          haircut: 20,
+          beard: 5,
+          "haircut+beard": 25,
+        };
+        totalWaitTime +=
+          serviceTimes[entry.service as keyof typeof serviceTimes] || 20;
+      });
+
+      return {
+        id: barber.id,
+        name: barber.name,
+        username: barber.username,
+        lat: barber.lat,
+        long: barber.long,
+        distance: (barber as any).distance,
+        queueLength,
+        estimatedWaitTime: totalWaitTime,
+        queue: barber.queueEntries.map((entry) => ({
+          id: entry.id,
+          user: entry.user,
+          enteredAt: entry.enteredAt,
+          service: (entry as any).service,
+        })),
+      };
+    });
+
+    console.log(`Found ${barbersWithQueueInfo.length} barbers nearby`);
+
+    res.json({
+      barbers: barbersWithQueueInfo,
+    });
+  } catch (error) {
+    console.error("Get barbers error:", error);
+    res.status(500).json({
+      msg: "Failed to get nearby barbers",
+      error: getErrorMessage(error),
+    });
+  }
+});
+
+// Leave queue
+userRouter.post(
+  "/leavequeue",
   authenticateJWT,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const lat = req.query.lat as string;
-      const long = req.query.long as string;
+      console.log("Leave queue request:", { userId: req.user?.id });
 
-      if (!lat || !long) {
-        res.status(400).json({
-          error: "Latitude and longitude query parameters are required",
-        });
-        return;
-      }
+      const result = await removeFromQueue(req.user!.id);
 
-      const qLat = parseFloat(lat);
-      const qLong = parseFloat(long);
-
-      if (isNaN(qLat) || isNaN(qLong)) {
-        res.status(400).json({ error: "Invalid latitude or longitude values" });
-        return;
-      }
-
-      // Validate latitude and longitude ranges
-      if (qLat < -90 || qLat > 90) {
-        res.status(400).json({ error: "Latitude must be between -90 and 90" });
-        return;
-      }
-
-      if (qLong < -180 || qLong > 180) {
-        res
-          .status(400)
-          .json({ error: "Longitude must be between -180 and 180" });
-        return;
-      }
-
-      const radius = req.query.radius
-        ? parseFloat(req.query.radius as string)
-        : 5;
-
-      if (isNaN(radius) || radius <= 0) {
-        res.status(400).json({ error: "Radius must be a positive number" });
-        return;
-      }
-
-      const barbers = await getBarbersNearby(qLat, qLong, radius);
+      console.log("User left queue successfully:", { userId: req.user?.id });
 
       res.json({
-        barbers,
-        searchLocation: { lat: qLat, long: qLong },
-        radiusKm: radius,
+        msg: "Successfully left the queue",
+        data: result,
       });
     } catch (error) {
-      console.error("Error fetching nearby barbers:", error);
-      res
-        .status(500)
-        .json({
-          error: "Internal server error",
-          details: getErrorMessage(error),
-        });
+      console.error("Leave queue error:", error);
+      res.status(500).json({
+        msg: "Failed to leave queue",
+        error: getErrorMessage(error),
+      });
     }
   }
 );
 
-// Get user's queue status
+// Get queue status
 userRouter.get(
   "/queue-status",
   authenticateJWT,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const userId = req.user?.id;
+      const queueStatus = await getUserQueueStatus(req.user!.id);
 
-      if (!userId) {
-        res.status(401).json({ error: "User not authenticated" });
-        return;
-      }
-
-      const queueStatus = await getUserQueueStatus(userId);
-      res.json({ queueStatus });
+      res.json({
+        queueStatus,
+      });
     } catch (error) {
-      console.error("Error fetching queue status:", error);
-      res
-        .status(500)
-        .json({
-          error: "Internal server error",
-          details: getErrorMessage(error),
-        });
+      console.error("Queue status error:", error);
+      res.status(500).json({
+        msg: "Failed to get queue status",
+        error: getErrorMessage(error),
+      });
     }
   }
 );

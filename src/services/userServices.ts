@@ -1,57 +1,87 @@
 // src/services/userServices.ts
+import { Prisma } from "@prisma/client";
 import prisma from "../db";
-import bcrypt from "bcrypt";
+
+export interface UserDTO {
+  id: number;
+  name: string;
+  phoneNumber: string;
+}
+
+// Phone number validation for India
+function validateIndianPhoneNumber(phoneNumber: string): string {
+  // Remove all non-digits
+  let cleanPhone = phoneNumber.replace(/\D/g, "");
+
+  // If starts with +91, remove it
+  if (cleanPhone.startsWith("91") && cleanPhone.length === 12) {
+    cleanPhone = cleanPhone.substring(2);
+  }
+
+  // Should be exactly 10 digits
+  if (cleanPhone.length !== 10) {
+    throw new Error("Phone number must be 10 digits");
+  }
+
+  // Should start with 6, 7, 8, or 9
+  if (!/^[6-9]/.test(cleanPhone)) {
+    throw new Error("Invalid Indian phone number format");
+  }
+
+  return cleanPhone;
+}
 
 export async function createUser(
   name: string,
-  email: string,
-  password: string
-) {
+  phoneNumber: string
+): Promise<UserDTO> {
   try {
-    console.log(`Creating user with email: ${email}`);
-    const passwordHash = await bcrypt.hash(password, 10);
+    console.log("Creating user with data:", { name, phoneNumber });
+
+    // Validate and clean phone number
+    const cleanPhoneNumber = validateIndianPhoneNumber(phoneNumber);
+
     const user = await prisma.user.create({
-      data: { name, email, passwordHash },
-    });
-    console.log(`User created successfully with ID: ${user.id}`);
-    return user;
-  } catch (error) {
-    console.error("Error creating user:", error);
-    throw new Error("Failed to create user");
-  }
-}
-
-export async function authenticateUser(email: string, password: string) {
-  try {
-    console.log(`Attempting to authenticate user with email: ${email}`);
-
-    // Find user by email
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
+      data: {
+        name,
+        phoneNumber: cleanPhoneNumber,
+      },
     });
 
-    if (!user) {
-      console.log(`User not found with email: ${email}`);
-      return null;
-    }
-
-    console.log(`User found, checking password for user ID: ${user.id}`);
-
-    // Compare password
-    const valid = await bcrypt.compare(password, user.passwordHash);
-
-    if (!valid) {
-      console.log(`Invalid password for user: ${email}`);
-      return null;
-    }
-
-    console.log(`Authentication successful for user: ${email}`);
-
-    // Return only the fields you want exposed
+    console.log("User created:", user);
     return {
       id: user.id,
       name: user.name,
-      email: user.email,
+      phoneNumber: user.phoneNumber,
+    };
+  } catch (error) {
+    console.error("Error creating user:", error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2002") {
+        throw new Error("Phone number already registered");
+      }
+    }
+    throw error;
+  }
+}
+
+export async function authenticateUser(
+  phoneNumber: string
+): Promise<UserDTO | null> {
+  try {
+    // Validate and clean phone number
+    const cleanPhoneNumber = validateIndianPhoneNumber(phoneNumber);
+
+    const user = await prisma.user.findUnique({
+      where: { phoneNumber: cleanPhoneNumber },
+    });
+
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      name: user.name,
+      phoneNumber: user.phoneNumber,
     };
   } catch (error) {
     console.error("Error authenticating user:", error);
@@ -59,9 +89,42 @@ export async function authenticateUser(email: string, password: string) {
   }
 }
 
-export async function joinQueue(barberId: number, userId: number) {
+export async function joinQueue(
+  userId: number,
+  barberId: number,
+  service: string
+): Promise<
+  Prisma.QueueGetPayload<{
+    include: {
+      user: { select: { id: true; name: true; phoneNumber: true } };
+      barber: { select: { id: true; name: true; lat: true; long: true } };
+    };
+  }>
+> {
   try {
-    // Check if barber exists
+    // Validate service type
+    const validServices = ["haircut", "beard", "haircut+beard"];
+    if (!validServices.includes(service)) {
+      throw new Error(
+        "Invalid service type. Must be haircut, beard, or haircut+beard"
+      );
+    }
+
+    // Verify user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Check if user is already in a queue
+    if (user.inQueue) {
+      throw new Error("You are already in a queue");
+    }
+
+    // Verify barber exists
     const barber = await prisma.barber.findUnique({
       where: { id: barberId },
     });
@@ -70,106 +133,94 @@ export async function joinQueue(barberId: number, userId: number) {
       throw new Error("Barber not found");
     }
 
-    const [, , entry] = await prisma.$transaction([
-      // 1) Remove any existing queue rows for this user
-      prisma.queue.deleteMany({ where: { userId } }),
-
-      // 2) Reset the user's queue flags
-      prisma.user.update({
-        where: { id: userId },
-        data: { inQueue: false, queuedBarberId: null },
-      }),
-
-      // 3) Create the new queue entry
+    // Add to queue and update user status
+    const [queueEntry] = await prisma.$transaction([
       prisma.queue.create({
-        data: { barberId, userId },
+        data: {
+          userId,
+          barberId,
+          service,
+        },
         include: {
-          user: { select: { id: true, name: true } },
-          barber: { select: { id: true, name: true } },
+          user: { select: { id: true, name: true, phoneNumber: true } },
+          barber: { select: { id: true, name: true, lat: true, long: true } },
         },
       }),
-
-      // 4) Mark the user as in‐queue at this barber
       prisma.user.update({
         where: { id: userId },
         data: { inQueue: true, queuedBarberId: barberId },
       }),
     ]);
 
-    return entry;
+    return queueEntry;
   } catch (error) {
     console.error("Error joining queue:", error);
-    throw new Error("Failed to join queue");
+    throw error;
+  }
+}
+
+export async function getBarbersNearby(
+  userLat: number,
+  userLong: number,
+  radius: number = 10
+): Promise<
+  Array<
+    Prisma.BarberGetPayload<{
+      select: {
+        id: true;
+        name: true;
+        username: true;
+        lat: true;
+        long: true;
+        queueEntries: {
+          include: { user: { select: { id: true; name: true } } };
+          orderBy: { enteredAt: "asc" };
+        };
+      };
+    }>
+  >
+> {
+  try {
+    const barbers = await prisma.barber.findMany({
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        lat: true,
+        long: true,
+        queueEntries: {
+          include: { user: { select: { id: true, name: true } } },
+          orderBy: { enteredAt: "asc" },
+        },
+      },
+    });
+
+    // Calculate distance and filter by radius
+    const barbersWithDistance = barbers
+      .map((barber) => {
+        const distance = calculateDistance(
+          userLat,
+          userLong,
+          barber.lat,
+          barber.long
+        );
+        return { ...barber, distance };
+      })
+      .filter((barber) => barber.distance <= radius)
+      .sort((a, b) => a.distance - b.distance);
+
+    return barbersWithDistance;
+  } catch (error) {
+    console.error("Error getting nearby barbers:", error);
+    throw new Error("Failed to get nearby barbers");
   }
 }
 
 export async function removeFromQueue(userId: number) {
   try {
-    // Check if user is in a queue
-    const existingQueueEntry = await prisma.queue.findUnique({
-      where: { userId },
-      include: {
-        barber: { select: { id: true, name: true } },
-      },
-    });
-
-    if (!existingQueueEntry) {
-      return {
-        success: false,
-        message: "You are not currently in any queue",
-        data: null,
-      };
-    }
-
-    // Remove user from queue in a transaction
-    const [deletedEntry] = await prisma.$transaction([
-      // 1) Delete the queue entry
-      prisma.queue.delete({
-        where: { userId },
-        include: {
-          barber: { select: { id: true, name: true } },
-        },
-      }),
-
-      // 2) Update user's queue status
-      prisma.user.update({
-        where: { id: userId },
-        data: {
-          inQueue: false,
-          queuedBarberId: null,
-        },
-      }),
-    ]);
-
-    return {
-      success: true,
-      message: `Successfully removed from ${deletedEntry.barber.name}'s queue`,
-      data: {
-        removedFrom: deletedEntry.barber,
-        removedAt: new Date().toISOString(),
-      },
-    };
-  } catch (error) {
-    console.error("Error removing from queue:", error);
-    throw new Error("Failed to remove from queue");
-  }
-}
-
-export async function getUserQueueStatus(userId: number) {
-  try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        inQueue: true,
-        queuedBarberId: true,
-        Queue: {
-          include: {
-            barber: { select: { id: true, name: true } },
-          },
-        },
-      },
+      include: { Queue: true },
     });
 
     if (!user) {
@@ -177,29 +228,87 @@ export async function getUserQueueStatus(userId: number) {
     }
 
     if (!user.inQueue || !user.Queue) {
+      throw new Error("User is not in any queue");
+    }
+
+    // Remove from queue and update user status
+    await prisma.$transaction([
+      prisma.queue.delete({
+        where: { userId },
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { inQueue: false, queuedBarberId: null },
+      }),
+    ]);
+
+    return { success: true, message: "Successfully removed from queue" };
+  } catch (error) {
+    console.error("Error removing from queue:", error);
+    throw error;
+  }
+}
+
+export async function getUserQueueStatus(userId: number): Promise<{
+  inQueue: boolean;
+  queuePosition: number | null;
+  barber: { id: number; name: string; lat: number; long: number } | null;
+  enteredAt: string | null;
+  service: string | null;
+  estimatedWaitTime: number | null; // in minutes
+}> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        Queue: {
+          include: {
+            barber: { select: { id: true, name: true, lat: true, long: true } },
+          },
+        },
+      },
+    });
+
+    if (!user || !user.inQueue || !user.Queue) {
       return {
         inQueue: false,
         queuePosition: null,
         barber: null,
         enteredAt: null,
+        service: null,
+        estimatedWaitTime: null,
       };
     }
 
     // Get position in queue
     const position = await prisma.queue.count({
       where: {
-        barberId: user.queuedBarberId!,
-        enteredAt: {
-          lt: user.Queue.enteredAt,
-        },
+        barberId: user.Queue.barberId,
+        enteredAt: { lte: user.Queue.enteredAt },
       },
     });
 
+    // Calculate estimated wait time based on service types
+    const queueAhead = await prisma.queue.findMany({
+      where: {
+        barberId: user.Queue.barberId,
+        enteredAt: { lt: user.Queue.enteredAt },
+      },
+      select: { service: true },
+    });
+
+    const estimatedWaitTime = calculateEstimatedWaitTime(
+      queueAhead,
+      user.Queue.service
+    );
+
     return {
       inQueue: true,
-      queuePosition: position + 1, // +1 because count starts at 0
+      queuePosition: position,
       barber: user.Queue.barber,
-      enteredAt: user.Queue.enteredAt,
+      enteredAt: user.Queue.enteredAt.toISOString(),
+      service: user.Queue.service,
+      estimatedWaitTime,
     };
   } catch (error) {
     console.error("Error getting user queue status:", error);
@@ -207,94 +316,44 @@ export async function getUserQueueStatus(userId: number) {
   }
 }
 
-// Constants for distance calculation
-const EARTH_RADIUS_KM = 6371;
-
-// Compute distance between two points (in km)
-function haversine(
+// Helper function to calculate distance between two points
+function calculateDistance(
   lat1: number,
   lon1: number,
   lat2: number,
   lon2: number
 ): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
+  const R = 6371; // Radius of the Earth in kilometers
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
   const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return EARTH_RADIUS_KM * c;
+  const distance = R * c;
+  return distance;
 }
 
-/**
- * Find barbers within a given radius (km) of a point.
- */
-export async function getBarbersNearby(
-  lat: number,
-  long: number,
-  radiusKm = 5
-) {
-  try {
-    // Validate inputs
-    if (lat < -90 || lat > 90 || long < -180 || long > 180) {
-      throw new Error("Invalid latitude or longitude");
-    }
+// Helper function to calculate estimated wait time
+function calculateEstimatedWaitTime(
+  queueAhead: Array<{ service: string }>,
+  currentService: string
+): number {
+  const serviceTimes = {
+    haircut: 20,
+    beard: 5,
+    "haircut+beard": 25,
+  };
 
-    if (radiusKm <= 0) {
-      throw new Error("Radius must be positive");
-    }
-
-    // 1) Rough bounding box (lat ±, lon ±)
-    const latDelta = radiusKm / 111; // ~1° lat ≈ 111 km
-    const lonDelta = radiusKm / (111 * Math.cos((lat * Math.PI) / 180));
-
-    const minLat = lat - latDelta;
-    const maxLat = lat + latDelta;
-    const minLon = long - lonDelta;
-    const maxLon = long + lonDelta;
-
-    // 2) Fetch candidates in bounding box
-    const candidates = await prisma.barber.findMany({
-      where: {
-        lat: { gte: minLat, lte: maxLat },
-        long: { gte: minLon, lte: maxLon },
-      },
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        lat: true,
-        long: true,
-        createdAt: true,
-        queueEntries: {
-          select: {
-            id: true,
-            enteredAt: true,
-            user: { select: { id: true, name: true } },
-          },
-          orderBy: { enteredAt: "asc" },
-        },
-      },
-    });
-
-    // 3) Filter by actual circle distance and add queue info
-    const nearbyBarbers = candidates
-      .map((barber) => ({
-        ...barber,
-        distanceKm: haversine(lat, long, barber.lat, barber.long),
-        queueLength: barber.queueEntries.length,
-        // Don't expose individual queue entries for privacy
-        queueEntries: undefined,
-      }))
-      .filter((barber) => barber.distanceKm <= radiusKm)
-      .sort((a, b) => a.distanceKm - b.distanceKm);
-
-    console.log(`Found ${nearbyBarbers.length} barbers within ${radiusKm}km`);
-
-    return nearbyBarbers;
-  } catch (error) {
-    console.error("Error getting nearby barbers:", error);
-    throw new Error("Failed to get nearby barbers");
+  // Calculate time for all people ahead in queue
+  let totalWaitTime = 0;
+  for (const entry of queueAhead) {
+    totalWaitTime +=
+      serviceTimes[entry.service as keyof typeof serviceTimes] || 20;
   }
+
+  return totalWaitTime;
 }

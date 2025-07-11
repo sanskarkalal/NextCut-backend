@@ -5,11 +5,12 @@ import "dotenv/config";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
-// Extend Request interface to include user
+// Updated interface to support both old and new JWT structures
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: number;
-    email: string;
+    email?: string;
+    phoneNumber?: string;
     role?: string;
   };
 }
@@ -31,15 +32,16 @@ export function authenticateJWT(
   try {
     const payload = jwt.verify(token, JWT_SECRET) as any;
 
-    // Attach user info to request object
+    // Support both old JWT structure (email-based) and new structure (phone-based)
     req.user = {
-      id: payload.sub,
-      email: payload.email,
+      id: payload.sub, // JWT standard uses 'sub' for user ID
+      email: payload.email, // For backward compatibility
+      phoneNumber: payload.phoneNumber, // For new phone-based auth
       role: payload.role,
     };
 
     console.log("JWT payload:", payload);
-    console.log("Passed JWT auth middleware");
+    console.log("Authenticated user:", req.user);
     next();
   } catch (error) {
     console.error("JWT verification failed:", error);

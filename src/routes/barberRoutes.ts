@@ -154,16 +154,15 @@ router.get(
           queueId: entry.id,
           user: entry.user,
           enteredAt: entry.enteredAt,
+          service: (entry as any).service, // Include service in response
         })),
       });
     } catch (error) {
       console.error("Error fetching barber queue:", error);
-      res
-        .status(500)
-        .json({
-          error: "Internal server error",
-          details: getErrorMessage(error),
-        });
+      res.status(500).json({
+        error: "Internal server error",
+        details: getErrorMessage(error),
+      });
     }
   }
 );
@@ -205,12 +204,10 @@ router.post(
       });
     } catch (error) {
       console.error("Error removing user from queue:", error);
-      res
-        .status(500)
-        .json({
-          error: "Internal server error",
-          details: getErrorMessage(error),
-        });
+      res.status(500).json({
+        error: "Internal server error",
+        details: getErrorMessage(error),
+      });
     }
   }
 );

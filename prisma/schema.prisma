@@ -1,26 +1,31 @@
 // prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  name         String
-  email        String   @unique
-  passwordHash String
-  createdAt    DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  name        String
+  phoneNumber String   @unique // Changed from email to phone
+  createdAt   DateTime @default(now())
 
   // queue status flags
   inQueue        Boolean @default(false)
   queuedBarberId Int?
+
+  // Relations
   Queue          Queue?
+  ServiceHistory ServiceHistory[]
 
   @@index([queuedBarberId])
+  @@index([phoneNumber])
 }
 
 model Barber {
@@ -32,12 +37,15 @@ model Barber {
   long         Float
   createdAt    DateTime @default(now())
 
-  queueEntries Queue[]
+  // Relations
+  queueEntries   Queue[]
+  serviceHistory ServiceHistory[]
 }
 
 model Queue {
   id        Int      @id @default(autoincrement())
   enteredAt DateTime @default(now())
+  service   String // "haircut", "beard", "haircut+beard"
 
   barber   Barber @relation(fields: [barberId], references: [id])
   barberId Int
@@ -47,4 +55,18 @@ model Queue {
 
   @@unique([userId])
   @@index([barberId, enteredAt])
+}
+
+model ServiceHistory {
+  id       Int      @id @default(autoincrement())
+  barberId Int
+  userId   Int
+  service  String // "haircut", "beard", "haircut+beard"
+  servedAt DateTime @default(now())
+
+  barber Barber @relation(fields: [barberId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([barberId, servedAt])
+  @@index([userId, servedAt])
 }
